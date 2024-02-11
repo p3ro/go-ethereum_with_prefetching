@@ -466,6 +466,12 @@ func (s *stateObject) Address() common.Address {
 
 // Code returns the contract code associated with this object, if any.
 func (s *stateObject) Code() []byte {
+	address := s.Address()
+	hash := common.BytesToHash(s.CodeHash())
+	if common.CODE_DUMPING {
+		common.CONTRACT_CODE_COUNT[hash] += 1
+		common.CONTRACT_CODE_ALIAS[address] = hash
+	}
 	if s.code != nil {
 		return s.code
 	}
@@ -477,6 +483,10 @@ func (s *stateObject) Code() []byte {
 		s.db.setError(fmt.Errorf("can't load code hash %x: %v", s.CodeHash(), err))
 	}
 	s.code = code
+
+	if common.CODE_DUMPING {
+		common.CONTRACT_CODE[hash] = code //this is the first time we encounter this contact's code so we save it in our map
+	}
 	return code
 }
 

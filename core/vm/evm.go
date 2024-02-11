@@ -168,6 +168,17 @@ func (evm *EVM) SetBlockContext(blockCtx BlockContext) {
 	evm.chainRules = evm.chainConfig.Rules(num, blockCtx.Random != nil, timestamp)
 }
 
+// helper function for executing the evm.interpreter.Run() function and updating callid vars for jump tracing
+func run(evm *EVM, contract *Contract, input []byte, readOnly bool) ([]byte, error) {
+	if common.JUMP_TRACING {
+		temp_call_id := common.CALLID
+		common.CALLID = common.CALLID_COUNTER
+		common.CALLID_COUNTER += 1
+		defer func() { common.CALLID = temp_call_id }()
+	}
+	return evm.interpreter.Run(contract, input, readOnly)
+}
+
 // Call executes the contract associated with the addr with the given input as
 // parameters. It also handles any necessary value transfer required and takes
 // the necessary steps to create accounts and reverses the state in case of an
@@ -233,7 +244,7 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 			// The depth-check is already done, and precompiles handled above
 			contract := NewContract(caller, AccountRef(addrCopy), value, gas)
 			contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), code)
-			ret, err = evm.interpreter.Run(contract, input, false)
+			ret, err = run(evm, contract, input, false)
 			gas = contract.Gas
 		}
 	}
@@ -290,7 +301,7 @@ func (evm *EVM) CallCode(caller ContractRef, addr common.Address, input []byte, 
 		// The contract is a scoped environment for this execution context only.
 		contract := NewContract(caller, AccountRef(caller.Address()), value, gas)
 		contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), evm.StateDB.GetCode(addrCopy))
-		ret, err = evm.interpreter.Run(contract, input, false)
+		ret, err = run(evm, contract, input, false)
 		gas = contract.Gas
 	}
 	if err != nil {
@@ -334,7 +345,7 @@ func (evm *EVM) DelegateCall(caller ContractRef, addr common.Address, input []by
 		// Initialise a new contract and make initialise the delegate values
 		contract := NewContract(caller, AccountRef(caller.Address()), nil, gas).AsDelegate()
 		contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), evm.StateDB.GetCode(addrCopy))
-		ret, err = evm.interpreter.Run(contract, input, false)
+		ret, err = run(evm, contract, input, false)
 		gas = contract.Gas
 	}
 	if err != nil {
@@ -390,7 +401,7 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 		// When an error was returned by the EVM or when setting the creation code
 		// above we revert to the snapshot and consume any gas remaining. Additionally
 		// when we're in Homestead this also counts for code storage gas errors.
-		ret, err = evm.interpreter.Run(contract, input, true)
+		ret, err = run(evm, contract, input, true)
 		gas = contract.Gas
 	}
 	if err != nil {
@@ -460,7 +471,7 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 		}
 	}
 
-	ret, err := evm.interpreter.Run(contract, nil, false)
+	ret, err := run(evm, contract, nil, false)
 
 	// Check whether the max code size has been exceeded, assign err if the case.
 	if err == nil && evm.chainRules.IsEIP158 && len(ret) > params.MaxCodeSize {
