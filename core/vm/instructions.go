@@ -527,6 +527,38 @@ func opSstore(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]b
 	return nil, nil
 }
 
+// used for jump tracing
+func traceJump(hash common.Hash, src uint64, dst uint64) {
+	if hash == (common.Hash{}) {return}
+	common.JUMP_COUNT[hash] += 1
+	{
+		m := common.JUMP_CALLS[hash]
+		if m == nil {
+			m = map[int]struct{}{}
+			common.JUMP_CALLS[hash] = m
+		}
+		m[common.CALLID] = struct{}{}
+	}
+	{
+		m1 := common.JUMP_REG[hash]
+		if m1 == nil {
+			m1 = map[uint32]map[uint32]map[int]uint{}
+			common.JUMP_REG[hash] = m1
+		}
+		m2 := m1[uint32(src)]
+		if m2 == nil {
+			m2 = map[uint32]map[int]uint{}
+			m1[uint32(src)] = m2
+		}
+		m3 := m2[uint32(dst)]
+		if m3 == nil {
+			m3 = map[int]uint{}
+			m2[uint32(dst)] = m3
+		}
+		m3[common.CALLID] += 1
+	}
+}
+
 func opJump(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
 	if interpreter.evm.abort.Load() {
 		return nil, errStopToken
@@ -534,6 +566,10 @@ func opJump(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byt
 	pos := scope.Stack.pop()
 	if !scope.Contract.validJumpdest(&pos) {
 		return nil, ErrInvalidJump
+	}
+	if common.JUMP_TRACING {
+		var hash = scope.Contract.CodeHash
+		traceJump(hash, *pc, pos.Uint64())
 	}
 	*pc = pos.Uint64() - 1 // pc will be increased by the interpreter loop
 	return nil, nil
@@ -548,8 +584,18 @@ func opJumpi(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]by
 		if !scope.Contract.validJumpdest(&pos) {
 			return nil, ErrInvalidJump
 		}
+		if common.JUMP_TRACING {
+			var hash = scope.Contract.CodeHash
+			traceJump(hash, *pc, pos.Uint64())
+		}
 		*pc = pos.Uint64() - 1 // pc will be increased by the interpreter loop
+	} else {
+		if common.JUMP_TRACING {
+			var hash = scope.Contract.CodeHash 
+			traceJump(hash, *pc, pos.Uint64())
+		}
 	}
+	
 	return nil, nil
 }
 
